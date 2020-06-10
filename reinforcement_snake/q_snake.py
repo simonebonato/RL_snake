@@ -1,3 +1,4 @@
+
 import numpy as np
 import math
 import random
@@ -6,6 +7,7 @@ import tkinter as tk
 from tkinter import messagebox
 import pickle
 import matplotlib.pyplot as plt
+
 
 class cube(object):
     rows = 20
@@ -210,7 +212,7 @@ def obstacles(snake):
 
 
 def death():
-    global dead_counts, just_a_step, previous_relative, useless_steps, epsilon, max_len, rewards_list, scores_list,rewards_sum
+    global dead_counts, just_a_step, previous_relative, useless_steps, epsilon, max_len, rewards_list, scores_list,rewards_sum, yes_decay
     print('The score is:', len(s.body), f'Match number: {dead_counts + 1}\n')
     if len(s.body) > max_len: max_len = len(s.body)
     scores_list.append(len(s.body))
@@ -223,19 +225,24 @@ def death():
     rewards_sum = 0
 
     if yes_decay:
-        epsilon -= epsilon_decay_value
+        if epsilon > 0:
+            epsilon -= epsilon_decay_value
+        else:
+            epsilon = 0
+            yes_decay = False
+
 
 
 
 
 SIZE = 20
-start_q_table = None #'prima_prova.pickle' # 'None' if start from the beginning
-q_table_name = '600000episodes'#'epsilon_05_learning_05_discount_097'
+start_q_table = 'best_so_far.pickle' #'prima_prova.pickle' # 'None' if start from the beginning
+q_table_name = '300000episodes'#'epsilon_05_learning_05_discount_097'
 
 #MOST IMPORTANT PARAMETERS
-EPISODES = 600000
-watch = False
-epsilon = 0.8
+EPISODES = 300000
+watch = True
+epsilon = 0.9
 yes_decay = True
 
 #LEARNING PARAMETERS
@@ -244,7 +251,7 @@ DISCOUNT = 0.97 #original: 0.97, the highter the more the agent will strive for 
 
 #EPSILON
 #the higher the more randomly we choose the action to perform, and not he one with higher Q-value
-EPSILON_ZERO_AT = 0.9 #percent of the episodes
+EPSILON_ZERO_AT = 0.95 #percent of the episodes
 epsilon_decay_value = epsilon / (EPISODES * EPSILON_ZERO_AT)
 
 
