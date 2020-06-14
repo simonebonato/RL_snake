@@ -117,4 +117,4 @@ class DQNAgent:
 
             kk = 'asdasdsdfg dsfg'
 
-            dshf = 'say somethin'
+            dshf = 'say somethin'[
