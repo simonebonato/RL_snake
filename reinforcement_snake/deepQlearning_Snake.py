@@ -115,5 +115,6 @@ class DQNAgent:
 
             current_qs = current_qs_list[index]
 
+            kk = 'asdasdsdfg dsfg'
 
-            
+            dshf = 'say somethin'
