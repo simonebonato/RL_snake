@@ -2,9 +2,11 @@ from keras.models import Sequential
 from keras.layers import Dense, Dropout, Conv2D, MaxPooling2D, Activation, Flatten
 from keras.callbacks import TensorBoard
 from keras.optimizers import Adam
+import tensorflow as tf
+import numpy as np
 from collection import deque
 import time
-import numpy as np
+
 import random
 
 REPLAY_MEMORY_SIZE = 50_000
@@ -15,6 +17,7 @@ DISCOUNT = 0.99
 
 # Own Tensorboard class
 class ModifiedTensorBoard(TensorBoard):
+
 
     # Overriding init to set initial step and writer (we want one log file for all .fit() calls)
     def __init__(self, **kwargs):
@@ -48,19 +51,22 @@ class ModifiedTensorBoard(TensorBoard):
 class DQNAgent:
     def __init__(self):
         '''
-        we create 2 models, the first one will use "fit" for every step
-        while the other one always makes "predict", else using just one will go crazy
+        we create 2 models, the first one will use "fit" for every step while
+        the other one always makes "predict", else using just one will go crazy
         '''
-        #main model
+        # main model
         self.model = self.create_model()
-        #target model
+
+        # target model
         self.target_model = self.create_model()
         self.target_model.set_weights(self.model.get_weights())
 
-        #a list of a max size of maxlen
-        #useful because when we fit the model, if we use just one value at a time
-        #it gest overfitted at every single fit
-        #with this we can make our batch of REPLAY_MEMORY_SIZE RANDOMLY SELECTED ELEMENTS
+        # a list of a max size of maxlen
+        # useful because when we fit the model, if we use just one value at a
+        #  time it gest overfitted at every single fit
+        # with this we can make our batch of REPLAY_MEMORY_SIZE
+        # RANDOMLY SELECTED ELEMENTS
+
         self.replay_memory= deque(maxlen=REPLAY_MEMORY_SIZE)
         self.TensorBoard = ModifiedTensorBoard(log_dir=f'logs/{MODEL_NAME}-{int(time.time())}')
         self.target_update_counter = 0
@@ -100,7 +106,7 @@ class DQNAgent:
         current_states = np.array([transitions[0] for transitions in minibatch])/255
         current_qs_list = self.model.predict(current_states)
 
-        new_current_states= = np.array([transitions[3] for transitions in minibatch])/255
+        new_current_states = np.array([transitions[3] for transitions in minibatch])/255
         future_qs_list = self.target_model.predict(new_current_states)
 
         X = []
@@ -116,5 +122,3 @@ class DQNAgent:
             current_qs = current_qs_list[index]
 
             kk = 'asdasdsdfg dsfg'
-
-            dshf = 'say somethin'[
