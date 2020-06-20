@@ -54,7 +54,20 @@ class snake(object):
         self.body.append(self.head)
         self.dirnx = 0
         self.dirny = 1
+        self.SIZE = 20
 
+    # FOR CNN #
+    def get_image(self):
+        env = np.zeros((self.SIZE, self.SIZE, 3), dtype=np.uint8)  # starts an rbg of our size
+        env[self.head.pos[0]][self.head.pos[1]] = self.d[self.FOOD_N]  # sets the food location tile to green color
+
+        # change here the zeros values!
+
+        env[self.enemy.x][self.enemy.y] = self.d[self.ENEMY_N]  # sets the enemy location to red
+        env[self.player.x][self.player.y] = self.d[self.PLAYER_N]  # sets the player tile to blue
+        img = Image.fromarray(env, 'RGB')  # reading to rgb. Apparently. Even tho color definitions are bgr. ???
+        return img
+        
     def move(self, action):
         # for event in pygame.event.get():
         #     if event.type == pygame.QUIT:
@@ -104,6 +117,51 @@ class snake(object):
             #     elif c.dirny == -1 and c.pos[1] <= 0: c.pos = (c.pos[0],c.rows-1)
             #     else: c.move(c.dirnx,c.dirny)
 
+    def new_state():
+
+        just_a_step = True
+
+        if s.head.pos == snack.pos:
+            reward = FOOD_REWARD
+            rewards_sum += reward
+            s.addCube()
+            snack_coordinates = randomSnack(rows,s)
+            snack = cube(snack_coordinates, color =(0,255,0))
+            just_a_step = False
+            useless_steps = 0
+            # print('Took the candy!')
+
+
+        for x in range(len(s.body)):
+            if s.body[x].pos in list(map(lambda z:z.pos,s.body[x+1:])):
+                reward = DEATH_REWARD
+                rewards_sum += reward
+                death()
+                break
+
+        if (s.head.pos[0] < 0 or s.head.pos[1] < 0 or s.head.pos[0] > rows-1 or s.head.pos[1] > rows-1):
+            reward = DEATH_REWARD
+            rewards_sum += reward
+            death()
+
+
+        previous_relative = relative_position
+        relative_position = (s.head.pos[0] - snack_coordinates[0] , s.head.pos[1] - snack_coordinates[1])
+
+        if just_a_step:
+            if (np.abs(relative_position[0]) < np.abs(previous_relative[0])) or (np.abs(relative_position[1]) < np.abs(previous_relative[1])):
+                reward = STEP_CLOSER_REWARD
+                rewards_sum += reward
+            else:
+                reward = STEP_REWARD
+                rewards_sum += reward
+                useless_steps += 1
+
+
+        if useless_steps == 400:
+            death()
+
+        return relative_position, reward
 
 
 
@@ -415,65 +473,10 @@ while dead_counts <= EPISODES:
 
 
     s.move(action)
-    just_a_step = True
-
-    if s.head.pos == snack.pos:
-        reward = FOOD_REWARD
-        rewards_sum += reward
-        s.addCube()
-        snack_coordinates = randomSnack(rows,s)
-        snack = cube(snack_coordinates, color =(0,255,0))
-        just_a_step = False
-        useless_steps = 0
-        # print('Took the candy!')
+    s.new_state()
 
 
-    for x in range(len(s.body)):
-        if s.body[x].pos in list(map(lambda z:z.pos,s.body[x+1:])):
-            reward = DEATH_REWARD
-            rewards_sum += reward
-            death()
-            break
 
-    if (s.head.pos[0] < 0 or s.head.pos[1] < 0 or s.head.pos[0] > rows-1 or s.head.pos[1] > rows-1):
-        reward = DEATH_REWARD
-        rewards_sum += reward
-        death()
-
-
-    previous_relative = relative_position
-    relative_position = (s.head.pos[0] - snack_coordinates[0] , s.head.pos[1] - snack_coordinates[1])
-
-    if just_a_step:
-        if (np.abs(relative_position[0]) < np.abs(previous_relative[0])) or (np.abs(relative_position[1]) < np.abs(previous_relative[1])):
-            reward = STEP_CLOSER_REWARD
-            rewards_sum += reward
-        else:
-            reward = STEP_REWARD
-            rewards_sum += reward
-            useless_steps += 1
-
-
-    new_state = (relative_position, obstacles(s))
-    max_future_q = np.max(q_table[new_state])
-    current_q = q_table[current_state][action]
-    new_q = current_q + LEARNING_RATE * (reward + DISCOUNT * max_future_q - current_q)
-    q_table[current_state][action] = new_q
-
-    if useless_steps == 400:
-        death()
 
     if watch:
         redrawWindow(win)
-
-with open(f'{q_table_name}.pickle', 'wb') as f:
-    pickle.dump(q_table,f)
-
-print(f'The model {q_table_name} has been created!\nThe max score reached is: {max_len}')
-
-
-fig, axs = plt.subplots(2)
-fig.suptitle(f'Rewards and Scores: {q_table_name}')
-axs[0].plot(range(EPISODES+1), rewards_list)
-axs[1].plot(range(EPISODES+1), scores_list)
-plt.show()

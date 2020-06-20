@@ -73,6 +73,7 @@ class BlobEnv:
         env[self.player.x][self.player.y] = self.d[self.PLAYER_N]  # sets the player tile to blue
         img = Image.fromarray(env, 'RGB')  # reading to rgb. Apparently. Even tho color definitions are bgr. ???
         return img
+
 env = BlobEnv()
 
 # For stats
