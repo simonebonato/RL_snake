@@ -15,357 +15,365 @@ import cv2
 
 import random
 
-DISCOUNT = 0.99
-REPLAY_MEMORY_SIZE = 50_000  # How many last steps to keep for model training
-MIN_REPLAY_MEMORY_SIZE = 1_000  # Minimum number of steps in a memory to start training
-MINIBATCH_SIZE = 64  # How many steps (samples) to use for training
-UPDATE_TARGET_EVERY = 5  # Terminal states (end of episodes)
-MODEL_NAME = '2x256'
-MIN_REWARD = -200  # For model save
-MEMORY_FRACTION = 0.20
+class cube(object):
+    rows = 20
+    w = 500
 
-# Environment settings
-EPISODES = 20_000
+    def __init__(self, start, dirnx=1, dirny=0, color =(255,0,0)):
+        self.pos = start
+        self.dirnx = 1
+        self.dirny = 0
+        self.color = color
 
-# Exploration settings
-epsilon = 1  # not a constant, going to be decayed
-EPSILON_DECAY = 0.99975
-MIN_EPSILON = 0.001
+    def move(self, dirnx, dirny):
+        self.dirnx = dirnx
+        self.dirny = dirny
 
-#  Stats settings
-AGGREGATE_STATS_EVERY = 50  # episodes
-SHOW_PREVIEW = False
+        self.pos = (self.pos[0]+ self.dirnx,self.pos[1]+ self.dirny )
 
-class BlobEnv:
-    SIZE = 10
-    RETURN_IMAGES = True
-    MOVE_PENALTY = 1
-    ENEMY_PENALTY = 300
-    FOOD_REWARD = 25
-    OBSERVATION_SPACE_VALUES = (SIZE, SIZE, 3)  # 4
-    ACTION_SPACE_SIZE = 9
-    PLAYER_N = 1  # player key in dict
-    FOOD_N = 2  # food key in dict
-    ENEMY_N = 3  # enemy key in dict
-    # the dict! (colors)
-    d = {1: (255, 175, 0),
-         2: (0, 255, 0),
-         3: (0, 0, 255)}
+    def draw(self, surface, eyes = False):
+        dis = self.w // self.rows
+        i = self.pos[0]
+        j = self.pos[1]
+
+        pygame.draw.rect(surface, self.color, (i*dis+1,j*dis+1, dis-2,dis-2))
+        if eyes:
+            centre = dis//2
+            radius = 3
+            circleMiddle = (i*dis+centre-radius,j*dis+8)
+            circleMiddle2 = (i*dis + dis -radius*2, j*dis+8)
+            pygame.draw.circle(surface, (0,0,0), circleMiddle, radius)
+            pygame.draw.circle(surface, (0,0,0), circleMiddle2, radius)
+class snake(object):
+    body = []
+    turns = {}
+
+    def __init__(self, color, pos):
+        self.color = color
+        self.head = cube(pos)
+        self.body.append(self.head)
+        self.dirnx = 0
+        self.dirny = 1
+
+    def move(self, action):
+        # for event in pygame.event.get():
+        #     if event.type == pygame.QUIT:
+        #         pygame.quit()
+
+        #move left
+        if action == 0:
+            self.dirnx = -1
+            self.dirny = 0
+            self.turns[self.head.pos[:]] = [self.dirnx, self.dirny]
+        #move right
+        elif action == 1:
+            self.dirnx = 1
+            self.dirny = 0
+            self.turns[self.head.pos[:]] = [self.dirnx, self.dirny]
+        #move up
+        elif action == 2:
+            self.dirnx = 0
+            self.dirny = -1
+            self.turns[self.head.pos[:]] = [self.dirnx, self.dirny]
+        #move down
+        elif action ==3:
+            self.dirnx = 0
+            self.dirny = 1
+            self.turns[self.head.pos[:]] = [self.dirnx, self.dirny]
+
+        for i,c in enumerate(self.body):
+            p = c.pos[:]
+            if p in self.turns:
+                turn = self.turns[p]
+                c.move(turn[0], turn[1])
+                if i == len(self.body)-1:
+                    self.turns.pop(p)
+
+            else:
+                if (c.dirnx == -1 or c.dirny == 1 or c.dirny == -1) and c.pos[0] < 0: c.pos = (c.rows-1, c.pos[1])
+                elif (c.dirnx == 1 or c.dirny == 1 or c.dirny == -1) and c.pos[0] > c.rows-1: c.pos = (0,c.pos[1])
+                elif (c.dirny == 1 or c.dirnx == 1 or c.dirnx ==-1) and c.pos[1] > c.rows-1: c.pos = (c.pos[0], 0)
+                elif (c.dirny == -1 or c.dirnx == 1 or c.dirnx == -1) and c.pos[1] < 0: c.pos = (c.pos[0],c.rows-1)
+                else: c.move(c.dirnx,c.dirny)
+
+
+            # else:
+            #     if c.dirnx == -1 and c.pos[0] <= 0: c.pos = (c.rows-1, c.pos[1])
+            #     elif c.dirnx == 1 and c.pos[0] >= c.rows-1: c.pos = (0,c.pos[1])
+            #     elif c.dirny == 1 and c.pos[1] >= c.rows-1: c.pos = (c.pos[0], 0)
+            #     elif c.dirny == -1 and c.pos[1] <= 0: c.pos = (c.pos[0],c.rows-1)
+            #     else: c.move(c.dirnx,c.dirny)
+
+
+
 
     def reset(self):
-        self.player = Blob(self.SIZE)
-        self.food = Blob(self.SIZE)
-        while self.food == self.player:
-            self.food = Blob(self.SIZE)
-        self.enemy = Blob(self.SIZE)
-        while self.enemy == self.player or self.enemy == self.food:
-            self.enemy = Blob(self.SIZE)
+        self.body = []
+        self.head = cube((np.random.randint(0,20),np.random.randint(0,20)))
+        self.body.append(self.head)
+        self.turns = {}
+        self.dirnx = 0
+        self.dirny = 1
 
-        self.episode_step = 0
+    def addCube(self):
+        tail = self.body[-1]
+        dx, dy = tail.dirnx, tail.dirny
 
-        if self.RETURN_IMAGES:
-            observation = np.array(self.get_image())
-        else:
-            observation = (self.player-self.food) + (self.player-self.enemy)
-        return observation
+        if dx == 1 and dy == 0:
+            self.body.append(cube((tail.pos[0]-1,tail.pos[1])))
+        elif dx == -1 and dy == 0:
+            self.body.append(cube((tail.pos[0]+1,tail.pos[1])))
+        elif dx == 0 and dy == 1:
+            self.body.append(cube((tail.pos[0],tail.pos[1]-1)))
+        elif dx == 0 and dy == -1:
+            self.body.append(cube((tail.pos[0],tail.pos[1]+1)))
 
-    def step(self, action):
-        self.episode_step += 1
-        self.player.action(action)
-
-        #### MAYBE ###
-        #enemy.move()
-        #food.move()
-        ##############
-
-        if self.RETURN_IMAGES:
-            new_observation = np.array(self.get_image())
-        else:
-            new_observation = (self.player-self.food) + (self.player-self.enemy)
-
-        if self.player == self.enemy:
-            reward = -self.ENEMY_PENALTY
-        elif self.player == self.food:
-            reward = self.FOOD_REWARD
-        else:
-            reward = -self.MOVE_PENALTY
-
-        done = False
-        if reward == self.FOOD_REWARD or reward == -self.ENEMY_PENALTY or self.episode_step >= 200:
-            done = True
-
-        return new_observation, reward, done
-
-    def render(self):
-        img = self.get_image()
-        img = img.resize((300, 300))  # resizing so we can see our agent in all its glory.
-        cv2.imshow("image", np.array(img))  # show it!
-        cv2.waitKey(1)
-
-    # FOR CNN #
-    def get_image(self):
-        env = np.zeros((self.SIZE, self.SIZE, 3), dtype=np.uint8)  # starts an rbg of our size
-        env[self.food.x][self.food.y] = self.d[self.FOOD_N]  # sets the food location tile to green color
-        env[self.enemy.x][self.enemy.y] = self.d[self.ENEMY_N]  # sets the enemy location to red
-        env[self.player.x][self.player.y] = self.d[self.PLAYER_N]  # sets the player tile to blue
-        img = Image.fromarray(env, 'RGB')  # reading to rgb. Apparently. Even tho color definitions are bgr. ???
-        return img
-class Blob:
-    def __init__(self, size):
-        self.size = size
-        self.x = np.random.randint(0, size)
-        self.y = np.random.randint(0, size)
-
-    def __str__(self):
-        return f"Blob ({self.x}, {self.y})"
-
-    def __sub__(self, other):
-        return (self.x-other.x, self.y-other.y)
-
-    def __eq__(self, other):
-        return self.x == other.x and self.y == other.y
-
-    def action(self, choice):
-        '''
-        Gives us 9 total movement options. (0,1,2,3,4,5,6,7,8)
-        '''
-        if choice == 0:
-            self.move(x=1, y=1)
-        elif choice == 1:
-            self.move(x=-1, y=-1)
-        elif choice == 2:
-            self.move(x=-1, y=1)
-        elif choice == 3:
-            self.move(x=1, y=-1)
-
-        elif choice == 4:
-            self.move(x=1, y=0)
-        elif choice == 5:
-            self.move(x=-1, y=0)
-
-        elif choice == 6:
-            self.move(x=0, y=1)
-        elif choice == 7:
-            self.move(x=0, y=-1)
-
-        elif choice == 8:
-            self.move(x=0, y=0)
-
-    def move(self, x=False, y=False):
-
-        # If no value for x, move randomly
-        if not x:
-            self.x += np.random.randint(-1, 2)
-        else:
-            self.x += x
-
-        # If no value for y, move randomly
-        if not y:
-            self.y += np.random.randint(-1, 2)
-        else:
-            self.y += y
-
-        # If we are out of bounds, fix!
-        if self.x < 0:
-            self.x = 0
-        elif self.x > self.size-1:
-            self.x = self.size-1
-        if self.y < 0:
-            self.y = 0
-        elif self.y > self.size-1:
-            self.y = self.size-1
-
-env = BlobEnv()
-
-# For stats
-ep_rewards = [-200]
-
-# For more repetitive results
-random.seed(1)
-np.random.seed(1)
-tf.random.set_seed(1)
-
-# Create models folder
-if not os.path.isdir('models'):
-    os.makedirs('models')
+        self.body[-1].dirnx = dx
+        self.body[-1].dirny = dy
 
 
 
-# Own Tensorboard class
-class ModifiedTensorBoard(TensorBoard):
 
-    # Overriding init to set initial step and writer (we want one log file for all .fit() calls)
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.step = 1
-        self.writer = tf.summary.create_file_writer(self.log_dir)
-
-    # Overriding this method to stop creating default log writer
-    def set_model(self, model):
-        pass
-
-    # Overrided, saves logs with our step number
-    # (otherwise every .fit() will start writing from 0th step)
-    def on_epoch_end(self, epoch, logs=None):
-        self.update_stats(**logs)
-
-    # Overrided
-    # We train for one batch only, no need to save anything at epoch end
-    def on_batch_end(self, batch, logs=None):
-        pass
-
-    # Overrided, so won't close writer
-    def on_train_end(self, _):
-        pass
-
-    def _write_logs(self, logs, index):
-
-        with self.writer.as_default():
-
-            for name, value in logs.items():
-
-                tf.summary.scalar(name, value, step=index)
-
-                self.step += 1
-
-                self.writer.flush()
-    # Custom method for saving own metrics
-    # Creates writer, writes custom metrics and closes writer
-    def update_stats(self, **stats):
-        self._write_logs(stats, self.step)
-
-
-class DQNAgent:
-    def __init__(self):
-        '''
-        we create 2 models, the first one will use "fit" for every step while
-        the other one always makes "predict", else using just one will go crazy
-        '''
-        # main model
-        self.model = self.create_model()
-        # target model
-        self.target_model = self.create_model()
-        self.target_model.set_weights(self.model.get_weights())
-
-        # a list of a max size of maxlen
-        # useful because when we fit the model, if we use just one value at a
-        #  time it gest overfitted at every single fit
-        # with this we can make our batch of REPLAY_MEMORY_SIZE
-        # RANDOMLY SELECTED ELEMENTS
-        self.replay_memory = deque(maxlen=REPLAY_MEMORY_SIZE)
-        self.tensorboard = ModifiedTensorBoard(log_dir=f'logs/{MODEL_NAME}-{int(time.time())}')
-        self.target_update_counter = 0
-
-    def create_model(self):
-        model = Sequential()
-        model.add(Conv2D(256, (3, 3), input_shape = env.OBSERVATION_SPACE_VALUES))
-        model.add(Activation('relu'))
-        model.add(MaxPooling2D(2, 2))
-        model.add(Dropout(0.2))
-
-        model.add(Conv2D(256, (3, 3)))
-        model.add(Activation('relu'))
-        model.add(MaxPooling2D(2, 2))
-        model.add(Dropout(0.2))
-
-        model.add(Flatten())
-        model.add(Dense(64))
-
-        model.add(Dense(env.ACTION_SPACE_SIZE, activation = 'linear'))
-        model.compile(loss = 'mse', optimizer = Adam(lr=0.001), metrics = ['accuracy'])
-        return model
-
-    def update_replay_memory(self, transition):
-        self.replay_memory.append(transition)
-
-    def get_qs(self, state):
-        return self.model.predict(np.array(state).reshape(-1, *state.shape)/255)[0]
-
-
-    def train(self, terminal_state, step):
-        if len(self.replay_memory) < MIN_REPLAY_MEMORY_SIZE:
-            return
-
-        minibatch = random.sample(self.replay_memory, MINIBATCH_SIZE)
-
-        current_states = np.array([transitions[0] for transitions in minibatch])/255
-        current_qs_list = self.model.predict(current_states)
-
-        new_current_states = np.array([transitions[3] for transitions in minibatch])/255
-        future_qs_list = self.target_model.predict(new_current_states)
-
-        X = []
-        y = []
-
-        for index, (current_states, action, reward, new_current_state, done) in enumerate(minibatch):
-            if not done:
-                max_future_q = np.max(future_qs_list[index])
-                new_q = reward + discount * max_future_q
+    def draw(self,surface):
+        for i,c in enumerate(self.body):
+            if i == 0:
+                c.draw(surface, True)
             else:
-                new_q = reward
+                c.draw(surface)
+def drawGrid(w, rows, surface):
+    sizeBtwn = w // rows
 
-            current_qs = current_qs_list[index]
-            current_qs[action] = new_q
+    x = 0
+    y = 0
 
-            X.append(current_state)
-            y.append(current_qs)
+    for l in range(rows):
+         x = x + sizeBtwn
+         y = y + sizeBtwn
 
+         pygame.draw.line(surface, (255,255,255), (x,0), (x,w))
+         pygame.draw.line(surface, (255,255,255), (0,y), (w,y))
+def redrawWindow(surface):
+    global rows, width,s, snack
 
-        self.model.fit(np.array(X)/255, np.array(y), batch_size = MINIBATCH_SIZE,
-        verbose = 0, shuffle = False, callbacks=[self.tensorboard] if terminal_state else None)
+    surface.fill((0,0,0))
+    s.draw(surface)
+    snack.draw(surface)
+    drawGrid(width, rows,surface)
+    pygame.display.update()
+def randomSnack(rows, item):
 
-        # updating to determine if we want to update target_model yet
-        if terminal_state:
-            self.target_update_counter += 1
+    positions = item.body
 
-        if self.target_update_counter > UPDATE_TARGET_EVERY:
-            self.target_model.set_weights(self.model.get_weights())
-            self.target_update_counter = 0
-
-
-agent = DQNAgent()
-
-for episode in tqdm(range(1, EPISODES +1), ascii=True, unit ='episode'):
-    agent.tensorboard.step = episode
-
-    episode_reward = 0
-    step = 1
-    current_state = env.reset()
-
-    done = False
-    while not done:
-        if np.random.random() > EPSILON_DECAY:
-            action = np.argmax(agent.get_qs(current_state))
+    while True:
+        x = random.randrange(rows)
+        y = random.randrange(rows)
+        if len(list(filter(lambda z: z.pos == (x,y), positions))) > 0:
+            continue
         else:
-            action = np.random.randint(0, env.ACTION_SPACE_SIZE)
+            break
 
-        new_state, reward, done = env.step(action)
+    return (x,y)
+def message_box(subject, content):
+    root = tk.Tk()
+    root.attributes("-topmost", True)
+    root.withdraw()
+    messagebox.showinfo(subject, content)
+    try:
+        root.destroy()
+    except:
+        pass
+def obstacles(snake):
+    head_coordinates = snake.head.pos
+    obs_up = 0
+    obs_down = 0
+    obs_left = 0
+    obs_right = 0
 
-        episode_reward += reward
-
-        if SHOW_PREVIEW and not episode % AGGREGATE_STATS_EVERY:
-            env.render()
-
-
-            agent.update_replay_memory((current_state,action, reward, new_state, done))
-            agent.train(done, step)
-            current_state = new_state
-            step +=1
+    if snake.head.pos[0] == 0: obs_left = 1
+    if snake.head.pos[0] == 19: obs_right = 1
+    if snake.head.pos[1] == 0: obs_up = 1
+    if snake.head.pos[1] == 19: obs_down = 1
 
 
-    # Append episode reward to a list and log stats (every given number of episodes)
-    ep_rewards.append(episode_reward)
-    if not episode % AGGREGATE_STATS_EVERY or episode == 1:
-        average_reward = sum(ep_rewards[-AGGREGATE_STATS_EVERY:])/len(ep_rewards[-AGGREGATE_STATS_EVERY:])
-        min_reward = min(ep_rewards[-AGGREGATE_STATS_EVERY:])
-        max_reward = max(ep_rewards[-AGGREGATE_STATS_EVERY:])
-        agent.tensorboard.update_stats(reward_avg=average_reward, reward_min=min_reward, reward_max=max_reward, epsilon=epsilon)
+    for cube in snake.body[1:]:
+        if (head_coordinates[0] == cube.pos[0] and cube.pos[1] == head_coordinates[1] + 1) or (head_coordinates[0] == cube.pos[0] and cube.pos[1] == head_coordinates[1] - 19):
+            obs_down = 1
+        if (head_coordinates[0] == cube.pos[0] and cube.pos[1] == head_coordinates[1] - 1) or (head_coordinates[0] == cube.pos[0] and cube.pos[1] == head_coordinates[1] + 19):
+            obs_up = 1
+        if (head_coordinates[0] == cube.pos[0] + 1 and cube.pos[1] == head_coordinates[1]) or (head_coordinates[0] == cube.pos[0] - 19 and cube.pos[1] == head_coordinates[1]):
+            obs_left = 1
+        if (head_coordinates[0] == cube.pos[0] - 1 and cube.pos[1] == head_coordinates[1]) or (head_coordinates[0] == cube.pos[0] + 19 and cube.pos[1] == head_coordinates[1]):
+            obs_right = 1
 
-        # Save model, but only when min reward is greater or equal a set value
-        if min_reward >= MIN_REWARD:
-            agent.model.save(f'models/{MODEL_NAME}__{max_reward:_>7.2f}max_{average_reward:_>7.2f}avg_{min_reward:_>7.2f}min__{int(time.time())}.model')
 
-    # Decay epsilon
-    if epsilon > MIN_EPSILON:
-        epsilon *= EPSILON_DECAY
-        epsilon = max(MIN_EPSILON, epsilon)
+    return (obs_up,obs_left,obs_down,obs_right)
+def death():
+    global dead_counts, just_a_step, previous_relative, useless_steps, epsilon, max_len, rewards_list, scores_list,rewards_sum, yes_decay
+    print('The score is:', len(s.body), f'Match number: {dead_counts + 1}\n')
+    if len(s.body) > max_len: max_len = len(s.body)
+    scores_list.append(len(s.body))
+    s.reset()
+    useless_steps = 0
+    previous_relative = (99,99)
+    dead_counts += 1
+    just_a_step = False
+    rewards_list.append(rewards_sum)
+    rewards_sum = 0
+
+    if yes_decay:
+        if epsilon > 0:
+            epsilon -= epsilon_decay_value
+        else:
+            epsilon = 0
+            yes_decay = False
+
+
+
+
+
+SIZE = 20
+start_q_table = 'best_so_far.pickle' #'prima_prova.pickle' # 'None' if start from the beginning
+q_table_name = '300000episodes'#'epsilon_05_learning_05_discount_097'
+
+#MOST IMPORTANT PARAMETERS
+EPISODES = 300000
+watch = True
+epsilon = 0.9
+yes_decay = True
+
+#LEARNING PARAMETERS
+LEARNING_RATE = 0.5 #between 0 and 1, standard is 0.1
+DISCOUNT = 0.97 #original: 0.97, the highter the more the agent will strive for a long-term reeward
+
+#EPSILON
+#the higher the more randomly we choose the action to perform, and not he one with higher Q-value
+EPSILON_ZERO_AT = 0.95 #percent of the episodes
+epsilon_decay_value = epsilon / (EPISODES * EPSILON_ZERO_AT)
+
+
+
+#REWARDS
+FOOD_REWARD = +25
+STEP_REWARD = -5
+STEP_CLOSER_REWARD = 10
+DEATH_REWARD = -30
+
+
+print(f'The food reward is: {FOOD_REWARD}\n The step reward is: {STEP_REWARD}\n The step closer reward is: {STEP_CLOSER_REWARD}\n The death reward is: {DEATH_REWARD}\n')
+
+if start_q_table is None:
+    q_table = {}
+    for x_food_rel in range(-SIZE+1,SIZE):
+        for y_food_rel in range(-SIZE+1,SIZE):
+            for obs_up in range(2):
+                for obs_left in range(2):
+                    for obs_down in range(2):
+                        for obs_right in range(2):
+                            q_table[(x_food_rel,y_food_rel),(obs_up,obs_left,obs_down,obs_right)] = [np.random.uniform(-3,0) for i in range (4)]
+
+else:
+    with open(start_q_table, 'rb') as f:
+        q_table = pickle.load(f)
+
+
+
+global width, rows, snack, s
+width = 500
+rows = 20
+if watch:
+    win = pygame.display.set_mode((width, width))
+    clock = pygame.time.Clock()
+    epsilon = 0
+
+starting_position = (np.random.randint(0,20),np.random.randint(0,20))
+s = snake((255,0,0), starting_position)
+snack_coordinates = randomSnack(rows,s)
+snack = cube(snack_coordinates, color =(0,255,0))
+
+
+rewards_list = []
+scores_list = []
+rewards_sum = 0
+dead_counts = 0
+previous_relative = (99,99)
+useless_steps = 0
+max_len = 1
+while dead_counts <= EPISODES:
+
+    if watch:
+        pygame.time.delay(50) #the lower the faster, original = 50
+        clock.tick(10) #the lower the slower, original = 10
+
+    relative_position = (s.head.pos[0] - snack_coordinates[0] , s.head.pos[1] - snack_coordinates[1])
+    current_state = (relative_position, obstacles(s))
+
+    if np.random.random() > epsilon:
+        action = np.argmax(q_table[current_state])
+    else:
+        action = np.random.randint(0, 4)
+
+
+
+    s.move(action)
+    just_a_step = True
+
+    if s.head.pos == snack.pos:
+        reward = FOOD_REWARD
+        rewards_sum += reward
+        s.addCube()
+        snack_coordinates = randomSnack(rows,s)
+        snack = cube(snack_coordinates, color =(0,255,0))
+        just_a_step = False
+        useless_steps = 0
+        # print('Took the candy!')
+
+
+    for x in range(len(s.body)):
+        if s.body[x].pos in list(map(lambda z:z.pos,s.body[x+1:])):
+            reward = DEATH_REWARD
+            rewards_sum += reward
+            death()
+            break
+
+    if (s.head.pos[0] < 0 or s.head.pos[1] < 0 or s.head.pos[0] > rows-1 or s.head.pos[1] > rows-1):
+        reward = DEATH_REWARD
+        rewards_sum += reward
+        death()
+
+
+    previous_relative = relative_position
+    relative_position = (s.head.pos[0] - snack_coordinates[0] , s.head.pos[1] - snack_coordinates[1])
+
+    if just_a_step:
+        if (np.abs(relative_position[0]) < np.abs(previous_relative[0])) or (np.abs(relative_position[1]) < np.abs(previous_relative[1])):
+            reward = STEP_CLOSER_REWARD
+            rewards_sum += reward
+        else:
+            reward = STEP_REWARD
+            rewards_sum += reward
+            useless_steps += 1
+
+
+    new_state = (relative_position, obstacles(s))
+    max_future_q = np.max(q_table[new_state])
+    current_q = q_table[current_state][action]
+    new_q = current_q + LEARNING_RATE * (reward + DISCOUNT * max_future_q - current_q)
+    q_table[current_state][action] = new_q
+
+    if useless_steps == 400:
+        death()
+
+    if watch:
+        redrawWindow(win)
+
+with open(f'{q_table_name}.pickle', 'wb') as f:
+    pickle.dump(q_table,f)
+
+print(f'The model {q_table_name} has been created!\nThe max score reached is: {max_len}')
+
+
+fig, axs = plt.subplots(2)
+fig.suptitle(f'Rewards and Scores: {q_table_name}')
+axs[0].plot(range(EPISODES+1), rewards_list)
+axs[1].plot(range(EPISODES+1), scores_list)
+plt.show()
