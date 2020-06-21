@@ -57,39 +57,9 @@ class snake(object):
         self.SIZE = 20
         self.useless_steps = 0
 
-    def death(self):
-
-        self.reset()
-        dead_counts += 1
-        just_a_step = False
-
-        if yes_decay:
-            if epsilon > 0:
-                epsilon -= epsilon_decay_value
-            else:
-                epsilon = 0
-                yes_decay = False
-        reward = DEATH_REWARD
-        return reward
-
-
-    # FOR CNN #
-    def get_image(self, snack):
-        env = np.zeros((self.SIZE, self.SIZE, 3), dtype=np.uint8)
-
-        for cube in self.body:  # starts an rbg of our size
-            env[cube.pos[0]][cube.pos[1]] = (255, 175, 0)  # sets the food location tile to green color
-
-        env[snack[0]][snack[1]] = (0, 255, 0)
-        # sets the player tile to blue
-        img = Image.fromarray(env, 'RGB')  # reading to rgb. Apparently. Even tho color definitions are bgr. ???
-        return img
-
-    def move(self, action):
-        # for event in pygame.event.get():
-        #     if event.type == pygame.QUIT:
-        #         pygame.quit()
-
+    def move(self, snack, action):
+        snack_coordinates = snack.pos
+        previous_relative  =  (self.head.pos[0] - snack_coordinates[0] , self.head.pos[1] - snack_coordinates[1])
         #move left
         if action == 0:
             self.dirnx = -1
@@ -134,13 +104,13 @@ class snake(object):
             #     elif c.dirny == -1 and c.pos[1] <= 0: c.pos = (c.pos[0],c.rows-1)
             #     else: c.move(c.dirnx,c.dirny)
 
-    def new_state(self):
-
         just_a_step = True
+        done = False
+
+        relative_position = (self.head.pos[0] - snack_coordinates[0] , self.head.pos[1] - snack_coordinates[1])
 
         if self.head.pos == snack.pos:
             reward = FOOD_REWARD
-            rewards_sum += reward
             self.addCube()
             snack_coordinates = randomSnack(rows,self)
             snack = cube(snack_coordinates, color =(0,255,0))
@@ -151,11 +121,13 @@ class snake(object):
 
         for x in range(len(self.body)):
             if self.body[x].pos in list(map(lambda z:z.pos,self.body[x+1:])):
-                self.death()
+                reward, just_a_step = self.death()
+                done = True
                 break
 
         if (self.head.pos[0] < 0 or self.head.pos[1] < 0 or self.head.pos[0] > rows-1 or self.head.pos[1] > rows-1):
-            self.death()
+            reward, just_a_step = self.death()
+            done = True
 
 
         # previous_relative = relative_position
@@ -170,13 +142,39 @@ class snake(object):
                 self.useless_steps += 1
 
         if self.useless_steps == 400:
-            self.death()
+            reward, just_a_step = self.death()
+            done = True
 
-        new_observation = np.array(self.get_image())
+        new_observation = np.array(self.get_image(snack))
 
-        return new_observation, reward
+        return new_observation, reward, done
+
+    def death(self):
+
+        self.reset()
+        just_a_step = False
+
+        # if yes_decay:
+        #     if epsilon > 0:
+        #         epsilon -= epsilon_decay_value
+        #     else:
+        #         epsilon = 0
+        #         yes_decay = False
+        reward = DEATH_REWARD
+        return reward, just_a_step
 
 
+    # FOR CNN #
+    def get_image(self, snack):
+        env = np.zeros((self.SIZE, self.SIZE, 3), dtype=np.uint8)
+
+        for cube in self.body:  # starts an rbg of our size
+            env[cube.pos[0]][cube.pos[1]] = (255, 175, 0)  # sets the food location tile to green color
+
+        env[snack.pos[0]][snack.pos[1]] = (0, 255, 0)
+        # sets the player tile to blue
+        img = Image.fromarray(env, 'RGB')  # reading to rgb. Apparently. Even tho color definitions are bgr. ???
+        return img
 
     def reset(self):
         self.body = []
@@ -186,7 +184,6 @@ class snake(object):
         self.dirnx = 0
         self.dirny = 1
         self.useless_steps = 0
-
     def addCube(self):
         tail = self.body[-1]
         dx, dy = tail.dirnx, tail.dirny
@@ -202,16 +199,13 @@ class snake(object):
 
         self.body[-1].dirnx = dx
         self.body[-1].dirny = dy
-
-
-
-
     def draw(self,surface):
         for i,c in enumerate(self.body):
             if i == 0:
                 c.draw(surface, True)
             else:
                 c.draw(surface)
+
 def drawGrid(w, rows, surface):
     sizeBtwn = w // rows
 
@@ -280,9 +274,6 @@ def obstacles(snake):
 
     return (obs_up,obs_left,obs_down,obs_right)
 
-
-
-
 SIZE = 20
 OBSERVATION_SPACE_VALUES =(SIZE,SIZE,3) # RGB images of the size of the grid
 ACTION_SPACE_SIZE = 4 # possible actions
@@ -344,11 +335,10 @@ class DQNAgent:
         self.replay_memory = deque(maxlen=REPLAY_MEMORY_SIZE)
         # Used to count when to update target network with main network'self weights
         self.target_update_counter = 0
-
     def create_model(self):
         model = Sequential()
 
-        model.add(Conv2D(256, (3, 3), input_shape=env.OBSERVATION_SPACE_VALUES))  # OBSERVATION_SPACE_VALUES = (10, 10, 3) a 10x10 RGB image.
+        model.add(Conv2D(256, (3, 3), input_shape=OBSERVATION_SPACE_VALUES))  # OBSERVATION_SPACE_VALUES = (10, 10, 3) a 10x10 RGB image.
         model.add(Activation('relu'))
         model.add(MaxPooling2D(pool_size=(2, 2)))
         model.add(Dropout(0.2))
@@ -361,15 +351,13 @@ class DQNAgent:
         model.add(Flatten())  # this converts our 3D feature maps to 1D feature vectors
         model.add(Dense(64))
 
-        model.add(Dense(env.ACTION_SPACE_SIZE, activation='linear'))  # ACTION_SPACE_SIZE = how many choices (9)
+        model.add(Dense(ACTION_SPACE_SIZE, activation='linear'))  # ACTION_SPACE_SIZE = how many choices (9)
         model.compile(loss="mse", optimizer=Adam(lr=0.001), metrics=['accuracy'])
         return model
-
     # Adds step'self data to a memory replay array
     # (observation space, action, reward, new observation space, done)
     def update_replay_memory(self, transition):
         self.replay_memory.append(transition)
-
     # Trains main network every step during episode
     def train(self, terminal_state, step):
 
@@ -412,7 +400,8 @@ class DQNAgent:
             y.append(current_qs)
 
         # Fit on all samples as one batch, log only on terminal state
-        self.model.fit(np.array(X)/255, np.array(y), batch_size=MINIBATCH_SIZE, verbose=0, shuffle=False, callbacks=[self.tensorboard] if terminal_state else None)
+        # , callbacks=[self.tensorboard] after
+        self.model.fit(np.array(X)/255, np.array(y), batch_size=MINIBATCH_SIZE, verbose=0, shuffle=False if terminal_state else None)
 
         # Update target network counter every episode
         if terminal_state:
@@ -422,56 +411,73 @@ class DQNAgent:
         if self.target_update_counter > UPDATE_TARGET_EVERY:
             self.target_model.set_weights(self.model.get_weights())
             self.target_update_counter = 0
-
     # Queries main network for Q values given current observation space (environment state)
     def get_qs(self, state):
         return self.model.predict(np.array(state).reshape(-1, *state.shape)/255)[0]
 
+agent = DQNAgent()
 
-
-
-global width, rows, snack, self
 width = 500
 rows = 20
-if watch:
-    win = pygame.display.set_mode((width, width))
-    clock = pygame.time.Clock()
-    epsilon = 0
 
 starting_position = (np.random.randint(0,20),np.random.randint(0,20))
-self = snake((255,0,0), starting_position)
-snack_coordinates = randomSnack(rows,self)
+s = snake((255,0,0), starting_position)
+
+snack_coordinates = randomSnack(rows,s)
 snack = cube(snack_coordinates, color =(0,255,0))
 
 
-rewards_list = []
-scores_list = []
-rewards_sum = 0
-dead_counts = 0
-previous_relative = (99,99)
-useless_steps = 0
-max_len = 1
-while dead_counts <= EPISODES:
 
-    if watch:
-        pygame.time.delay(50) #the lower the faster, original = 50
-        clock.tick(10) #the lower the slower, original = 10
+# Iterate over episodes
+for episode in tqdm(range(1, EPISODES + 1), ascii=True, unit='episodes'):
 
-    relative_position = (self.head.pos[0] - snack_coordinates[0] , self.head.pos[1] - snack_coordinates[1])
-    current_state = (relative_position, obstacles(self))
+    # Restarting episode - reset episode reward
+    episode_reward = 0
+    step = 1
 
-    if np.random.random() > epsilon:
-        action = np.argmax(q_table[current_state])
-    else:
-        action = np.random.randint(0, 4)
+    # Reset environment and get initial state
+    current_state = np.array(s.get_image(snack))
 
+    # Reset flag and start iterating until episode ends
+    done = False
+    while not done:
 
+        # This part stays mostly the same, the change is to query a model for Q values
+        if np.random.random() > epsilon:
+            # Get action from Q table
+            action = np.argmax(agent.get_qs(current_state))
+        else:
+            # Get random action
+            action = np.random.randint(0, 4)
 
-    self.move(action)
-    self.new_state()
+        new_state, reward, done = s.move(snack,action)
 
+        # Transform new continous state to new discrete state and count reward
+        episode_reward += reward
 
+        # if SHOW_PREVIEW and not episode % AGGREGATE_STATS_EVERY:
+        #     env.render()
 
+        # Every step we update replay memory and train main network
+        agent.update_replay_memory((current_state, action, reward, new_state, done))
+        agent.train(done, step)
 
-    if watch:
-        redrawWindow(win)
+        current_state = new_state
+        step += 1
+
+    # Append episode reward to a list and log stats (every given number of episodes)
+    # ep_rewards.append(episode_reward)
+    # if not episode % AGGREGATE_STATS_EVERY or episode == 1:
+    #     average_reward = sum(ep_rewards[-AGGREGATE_STATS_EVERY:])/len(ep_rewards[-AGGREGATE_STATS_EVERY:])
+    #     min_reward = min(ep_rewards[-AGGREGATE_STATS_EVERY:])
+    #     max_reward = max(ep_rewards[-AGGREGATE_STATS_EVERY:])
+    #     agent.tensorboard.update_stats(reward_avg=average_reward, reward_min=min_reward, reward_max=max_reward, epsilon=epsilon)
+    #
+    #     # Save model, but only when min reward is greater or equal a set value
+    #     if min_reward >= MIN_REWARD:
+    #         agent.model.save(f'models/{MODEL_NAME}__{max_reward:_>7.2f}max_{average_reward:_>7.2f}avg_{min_reward:_>7.2f}min__{int(time.time())}.model')
+
+    # Decay epsilon
+    if epsilon > MIN_EPSILON:
+        epsilon *= EPSILON_DECAY
+        epsilon = max(MIN_EPSILON, epsilon)
