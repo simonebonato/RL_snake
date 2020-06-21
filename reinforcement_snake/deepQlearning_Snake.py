@@ -12,6 +12,7 @@ from tqdm import tqdm
 import os
 from PIL import Image
 import cv2
+import pygame
 
 import random
 
@@ -24,13 +25,11 @@ class cube(object):
         self.dirnx = 1
         self.dirny = 0
         self.color = color
-
     def move(self, dirnx, dirny):
         self.dirnx = dirnx
         self.dirny = dirny
 
         self.pos = (self.pos[0]+ self.dirnx,self.pos[1]+ self.dirny )
-
     def draw(self, surface, eyes = False):
         dis = self.w // self.rows
         i = self.pos[0]
@@ -44,6 +43,7 @@ class cube(object):
             circleMiddle2 = (i*dis + dis -radius*2, j*dis+8)
             pygame.draw.circle(surface, (0,0,0), circleMiddle, radius)
             pygame.draw.circle(surface, (0,0,0), circleMiddle2, radius)
+
 class snake(object):
     body = []
     turns = {}
@@ -55,19 +55,36 @@ class snake(object):
         self.dirnx = 0
         self.dirny = 1
         self.SIZE = 20
+        self.useless_steps = 0
+
+    def death(self):
+
+        self.reset()
+        dead_counts += 1
+        just_a_step = False
+
+        if yes_decay:
+            if epsilon > 0:
+                epsilon -= epsilon_decay_value
+            else:
+                epsilon = 0
+                yes_decay = False
+        reward = DEATH_REWARD
+        return reward
+
 
     # FOR CNN #
-    def get_image(self):
-        env = np.zeros((self.SIZE, self.SIZE, 3), dtype=np.uint8)  # starts an rbg of our size
-        env[self.head.pos[0]][self.head.pos[1]] = self.d[self.FOOD_N]  # sets the food location tile to green color
+    def get_image(self, snack):
+        env = np.zeros((self.SIZE, self.SIZE, 3), dtype=np.uint8)
 
-        # change here the zeros values!
+        for cube in self.body:  # starts an rbg of our size
+            env[cube.pos[0]][cube.pos[1]] = (255, 175, 0)  # sets the food location tile to green color
 
-        env[self.enemy.x][self.enemy.y] = self.d[self.ENEMY_N]  # sets the enemy location to red
-        env[self.player.x][self.player.y] = self.d[self.PLAYER_N]  # sets the player tile to blue
+        env[snack[0]][snack[1]] = (0, 255, 0)
+        # sets the player tile to blue
         img = Image.fromarray(env, 'RGB')  # reading to rgb. Apparently. Even tho color definitions are bgr. ???
         return img
-        
+
     def move(self, action):
         # for event in pygame.event.get():
         #     if event.type == pygame.QUIT:
@@ -117,51 +134,47 @@ class snake(object):
             #     elif c.dirny == -1 and c.pos[1] <= 0: c.pos = (c.pos[0],c.rows-1)
             #     else: c.move(c.dirnx,c.dirny)
 
-    def new_state():
+    def new_state(self):
 
         just_a_step = True
 
-        if s.head.pos == snack.pos:
+        if self.head.pos == snack.pos:
             reward = FOOD_REWARD
             rewards_sum += reward
-            s.addCube()
-            snack_coordinates = randomSnack(rows,s)
+            self.addCube()
+            snack_coordinates = randomSnack(rows,self)
             snack = cube(snack_coordinates, color =(0,255,0))
             just_a_step = False
-            useless_steps = 0
+            self.useless_steps = 0
             # print('Took the candy!')
 
 
-        for x in range(len(s.body)):
-            if s.body[x].pos in list(map(lambda z:z.pos,s.body[x+1:])):
-                reward = DEATH_REWARD
-                rewards_sum += reward
-                death()
+        for x in range(len(self.body)):
+            if self.body[x].pos in list(map(lambda z:z.pos,self.body[x+1:])):
+                self.death()
                 break
 
-        if (s.head.pos[0] < 0 or s.head.pos[1] < 0 or s.head.pos[0] > rows-1 or s.head.pos[1] > rows-1):
-            reward = DEATH_REWARD
-            rewards_sum += reward
-            death()
+        if (self.head.pos[0] < 0 or self.head.pos[1] < 0 or self.head.pos[0] > rows-1 or self.head.pos[1] > rows-1):
+            self.death()
 
 
-        previous_relative = relative_position
-        relative_position = (s.head.pos[0] - snack_coordinates[0] , s.head.pos[1] - snack_coordinates[1])
+        # previous_relative = relative_position
+        # relative_position = (self.head.pos[0] - snack_coordinates[0] , self.head.pos[1] - snack_coordinates[1])
 
         if just_a_step:
             if (np.abs(relative_position[0]) < np.abs(previous_relative[0])) or (np.abs(relative_position[1]) < np.abs(previous_relative[1])):
                 reward = STEP_CLOSER_REWARD
-                rewards_sum += reward
+
             else:
                 reward = STEP_REWARD
-                rewards_sum += reward
-                useless_steps += 1
+                self.useless_steps += 1
 
+        if self.useless_steps == 400:
+            self.death()
 
-        if useless_steps == 400:
-            death()
+        new_observation = np.array(self.get_image())
 
-        return relative_position, reward
+        return new_observation, reward
 
 
 
@@ -172,6 +185,7 @@ class snake(object):
         self.turns = {}
         self.dirnx = 0
         self.dirny = 1
+        self.useless_steps = 0
 
     def addCube(self):
         tail = self.body[-1]
@@ -211,10 +225,10 @@ def drawGrid(w, rows, surface):
          pygame.draw.line(surface, (255,255,255), (x,0), (x,w))
          pygame.draw.line(surface, (255,255,255), (0,y), (w,y))
 def redrawWindow(surface):
-    global rows, width,s, snack
+    global rows, width,self, snack
 
     surface.fill((0,0,0))
-    s.draw(surface)
+    self.draw(surface)
     snack.draw(surface)
     drawGrid(width, rows,surface)
     pygame.display.update()
@@ -265,25 +279,6 @@ def obstacles(snake):
 
 
     return (obs_up,obs_left,obs_down,obs_right)
-def death():
-    global dead_counts, just_a_step, previous_relative, useless_steps, epsilon, max_len, rewards_list, scores_list,rewards_sum, yes_decay
-    print('The score is:', len(s.body), f'Match number: {dead_counts + 1}\n')
-    if len(s.body) > max_len: max_len = len(s.body)
-    scores_list.append(len(s.body))
-    s.reset()
-    useless_steps = 0
-    previous_relative = (99,99)
-    dead_counts += 1
-    just_a_step = False
-    rewards_list.append(rewards_sum)
-    rewards_sum = 0
-
-    if yes_decay:
-        if epsilon > 0:
-            epsilon -= epsilon_decay_value
-        else:
-            epsilon = 0
-            yes_decay = False
 
 
 
@@ -347,7 +342,7 @@ class DQNAgent:
 
         # An array with last n steps for training
         self.replay_memory = deque(maxlen=REPLAY_MEMORY_SIZE)
-        # Used to count when to update target network with main network's weights
+        # Used to count when to update target network with main network'self weights
         self.target_update_counter = 0
 
     def create_model(self):
@@ -370,7 +365,7 @@ class DQNAgent:
         model.compile(loss="mse", optimizer=Adam(lr=0.001), metrics=['accuracy'])
         return model
 
-    # Adds step's data to a memory replay array
+    # Adds step'self data to a memory replay array
     # (observation space, action, reward, new observation space, done)
     def update_replay_memory(self, transition):
         self.replay_memory.append(transition)
@@ -435,7 +430,7 @@ class DQNAgent:
 
 
 
-global width, rows, snack, s
+global width, rows, snack, self
 width = 500
 rows = 20
 if watch:
@@ -444,8 +439,8 @@ if watch:
     epsilon = 0
 
 starting_position = (np.random.randint(0,20),np.random.randint(0,20))
-s = snake((255,0,0), starting_position)
-snack_coordinates = randomSnack(rows,s)
+self = snake((255,0,0), starting_position)
+snack_coordinates = randomSnack(rows,self)
 snack = cube(snack_coordinates, color =(0,255,0))
 
 
@@ -462,8 +457,8 @@ while dead_counts <= EPISODES:
         pygame.time.delay(50) #the lower the faster, original = 50
         clock.tick(10) #the lower the slower, original = 10
 
-    relative_position = (s.head.pos[0] - snack_coordinates[0] , s.head.pos[1] - snack_coordinates[1])
-    current_state = (relative_position, obstacles(s))
+    relative_position = (self.head.pos[0] - snack_coordinates[0] , self.head.pos[1] - snack_coordinates[1])
+    current_state = (relative_position, obstacles(self))
 
     if np.random.random() > epsilon:
         action = np.argmax(q_table[current_state])
@@ -472,8 +467,8 @@ while dead_counts <= EPISODES:
 
 
 
-    s.move(action)
-    s.new_state()
+    self.move(action)
+    self.new_state()
 
 
 
