@@ -13,8 +13,11 @@ import os
 from PIL import Image
 import cv2
 import pygame
-
 import random
+
+#Understand how to save stats, maybe tensorboard?
+
+
 
 class cube(object):
     rows = 20
@@ -43,7 +46,6 @@ class cube(object):
             circleMiddle2 = (i*dis + dis -radius*2, j*dis+8)
             pygame.draw.circle(surface, (0,0,0), circleMiddle, radius)
             pygame.draw.circle(surface, (0,0,0), circleMiddle2, radius)
-
 class snake(object):
     body = []
     turns = {}
