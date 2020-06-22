@@ -1,4 +1,3 @@
-import numpy as np
 import keras.backend.tensorflow_backend as backend
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Conv2D, MaxPooling2D, Activation, Flatten
@@ -6,6 +5,7 @@ from keras.optimizers import Adam
 from keras.callbacks import TensorBoard
 import tensorflow as tf
 from collections import deque
+import numpy as np
 import time
 import random
 from tqdm import tqdm
@@ -323,6 +323,63 @@ STEP_REWARD = -5
 STEP_CLOSER_REWARD = 10
 DEATH_REWARD = -30
 
+# For more repetitive results
+random.seed(1)
+np.random.seed(1)
+tf.random.set_seed(1)
+
+# Memory fraction, used mostly when trai8ning multiple agents
+#gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=MEMORY_FRACTION)
+backend.set_session(tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)))
+
+# Create models folder
+if not os.path.isdir('models'):
+    os.makedirs('models')
+
+
+# Own Tensorboard class
+class ModifiedTensorBoard(TensorBoard):
+
+    # Overriding init to set initial step and writer (we want one log file for all .fit() calls)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.step = 1
+        self._log_write_dir = self.log_dir
+        self.writer = tf.summary.create_file_writer(self.log_dir)
+
+    # Overriding this method to stop creating default log writer
+    def set_model(self, model):
+        pass
+
+    # Overrided, saves logs with our step number
+    # (otherwise every .fit() will start writing from 0th step)
+    def on_epoch_end(self, epoch, logs=None):
+        self.update_stats(**logs)
+
+    def _write_logs(self, logs, index):
+
+        with self.writer.as_default():
+
+            for name, value in logs.items():
+
+                tf.summary.scalar(name, value, step=index)
+
+                self.step += 1
+
+                self.writer.flush()
+    # Overrided
+    # We train for one batch only, no need to save anything at epoch end
+    def on_batch_end(self, batch, logs=None):
+        pass
+
+    # Overrided, so won't close writer
+    def on_train_end(self, _):
+        pass
+
+    # Custom method for saving own metrics
+    # Creates writer, writes custom metrics and closes writer
+    def update_stats(self, **stats):
+        self._write_logs(stats, self.step)
 class DQNAgent:
     def __init__(self):
 
@@ -335,6 +392,8 @@ class DQNAgent:
 
         # An array with last n steps for training
         self.replay_memory = deque(maxlen=REPLAY_MEMORY_SIZE)
+        # Custom tensorboard object
+        self.tensorboard = ModifiedTensorBoard(log_dir="logs/{}-{}".format(MODEL_NAME, int(time.time())))
         # Used to count when to update target network with main network'self weights
         self.target_update_counter = 0
     def create_model(self):
@@ -403,7 +462,7 @@ class DQNAgent:
 
         # Fit on all samples as one batch, log only on terminal state
         # , callbacks=[self.tensorboard] after
-        self.model.fit(np.array(X)/255, np.array(y), batch_size=MINIBATCH_SIZE, verbose=0, shuffle=False if terminal_state else None)
+        self.model.fit(np.array(X)/255, np.array(y), batch_size=MINIBATCH_SIZE, verbose=0, shuffle=False, callbacks=[self.tensorboard] if terminal_state else None)
 
         # Update target network counter every episode
         if terminal_state:
